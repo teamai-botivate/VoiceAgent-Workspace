@@ -6,7 +6,8 @@
       "!!node_modules",
       "!!dist",
       "!!agent_config.json",
-      "!!agent_config.before-provision.json"
+      "!!agent_config.before-provision.json",
+      "!!data/private"
     ]
   },
   "formatter": {

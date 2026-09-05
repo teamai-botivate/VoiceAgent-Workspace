@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import 'dotenv/config';
 
 const apiBase = 'https://api.elevenlabs.io';
@@ -543,8 +543,10 @@ if (!createNewAgent) {
   const current = await api<Record<string, unknown>>(`/v1/convai/agents/${agentId}`);
   const config = current.conversation_config as { agent?: { prompt?: { tool_ids?: string[] } } };
   for (const id of config.agent?.prompt?.tool_ids ?? []) managedToolIds.add(id);
+  const backupDirectory = new URL('../data/private/backups/', import.meta.url);
+  await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
   await writeFile(
-    new URL('../agent_config.before-provision.json', import.meta.url),
+    new URL('agent_config.before-provision.json', backupDirectory),
     `${JSON.stringify(current, null, 2)}\n`,
     { mode: 0o600 },
   );

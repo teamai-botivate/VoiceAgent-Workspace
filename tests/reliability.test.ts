@@ -3,7 +3,7 @@ import { unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Client, createClient } from '@libsql/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../src/db/migrations.js';
 import { seedDemoData } from '../src/db/seed.js';
 import type { ProviderEvent } from '../src/domains/calls/events.js';
@@ -243,5 +243,61 @@ describe('call reliability', () => {
 
   it('does not query providers for synthetic seeded call history', async () => {
     expect(await repo.callsNeedingReconciliation()).toEqual([]);
+  });
+
+  it('combines context and scope while still reading current quantities and versions', async () => {
+    const call = await session();
+    const first = await repo.getContext(scope.tenantId, scope.followupId, call.id);
+    expect(first.items).toHaveLength(5);
+    await expect(repo.getContext('other-tenant', scope.followupId, call.id)).rejects.toMatchObject({
+      code: 'INVALID_CALL_CONTEXT',
+    });
+    await expect(
+      repo.getContext(scope.tenantId, scope.followupId, 'wrong-call'),
+    ).rejects.toMatchObject({ code: 'INVALID_CALL_CONTEXT' });
+    await db.execute(
+      "UPDATE purchase_requirement_items SET quantity_decimal = '99' WHERE id = 'item_demo_1'",
+    );
+    await db.execute(
+      "UPDATE purchase_requirements SET version = 2 WHERE id = 'requirement_demo_fasteners'",
+    );
+    const latest = await repo.getContext(scope.tenantId, scope.followupId, call.id);
+    expect(latest.requirementVersion).toBe(2);
+    expect(latest.items[0]?.quantity).toBe('99');
+  });
+
+  it('loads header and items with exactly one database execute', async () => {
+    const spy = vi.spyOn(db, 'execute');
+    await repo.getContext(scope.tenantId, scope.followupId);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it('rolls back the entire quotation if a batched line insert fails', async () => {
+    const input = await pricing();
+    const preview = await repo.previewPricing(input);
+    await db.execute(`CREATE TRIGGER fail_second_line BEFORE INSERT ON supplier_quotation_items
+      WHEN NEW.requirement_item_id = 'item_demo_2' BEGIN SELECT RAISE(ABORT, 'injected batch failure'); END`);
+    await expect(
+      repo.recordPricing({
+        ...input,
+        explicitConfirmation: true,
+        confirmationToken: preview.confirmationToken,
+      }),
+    ).rejects.toThrow();
+    expect(
+      (
+        await db.execute(
+          "SELECT COUNT(*) AS n FROM supplier_quotations WHERE followup_job_id = 'followup_demo_001'",
+        )
+      ).rows[0]?.n,
+    ).toBe(0);
+    expect(
+      (
+        await db.execute(
+          "SELECT COUNT(*) AS n FROM supplier_quotation_items WHERE requirement_item_id = 'item_demo_1'",
+        )
+      ).rows[0]?.n,
+    ).toBe(0);
   });
 });

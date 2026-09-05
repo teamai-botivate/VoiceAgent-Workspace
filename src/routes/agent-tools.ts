@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { CallDescriptionCache } from '../domains/followups/description-cache.js';
 import type { FollowupRepository } from '../domains/followups/repository.js';
 import {
   businessAnswerSchema,
@@ -9,7 +10,6 @@ import {
   scheduleCallbackSchema,
   supplierResponseSchema,
 } from '../domains/followups/schemas.js';
-import { spokenRequirement, spokenSpecification } from '../domains/followups/speech.js';
 import { requireAgentToolAuth } from './auth.js';
 
 export async function agentToolRoutes(
@@ -17,6 +17,8 @@ export async function agentToolRoutes(
   repository: FollowupRepository,
 ): Promise<void> {
   const options = { preHandler: requireAgentToolAuth };
+  const descriptions = new CallDescriptionCache();
+  app.addHook('onClose', async () => descriptions.clear());
   app.post('/agent-tools/pricing-preview', options, async (request) => {
     const result = await repository.previewPricing(previewPricingSchema.parse(request.body));
     return {
@@ -31,17 +33,21 @@ export async function agentToolRoutes(
 
   app.post('/agent-tools/followup-context', options, async (request) => {
     const input = callContextSchema.parse(request.body);
-    await repository.assertCallContext(input.tenantId, input.followupId, input.callSessionId);
-    const context = await repository.getContext(input.tenantId, input.followupId);
+    const context = await repository.getContext(
+      input.tenantId,
+      input.followupId,
+      input.callSessionId,
+    );
     await repository.markContextLoaded(input.tenantId, input.callSessionId);
+    const spoken = descriptions.get(context, input.callSessionId);
     return {
       success: true,
       data: {
         ...context,
-        spokenRequirementNumber: spokenRequirement(context.requirementNumber),
-        items: context.items.map((item) => ({
+        spokenRequirementNumber: spoken.spokenRequirementNumber,
+        items: context.items.map((item, index) => ({
           ...item,
-          spokenSpecification: spokenSpecification(item.specification),
+          spokenSpecification: spoken.items[index]?.spokenSpecification,
         })),
       },
     };

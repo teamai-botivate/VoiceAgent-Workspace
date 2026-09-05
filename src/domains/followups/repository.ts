@@ -84,34 +84,40 @@ function pricingHash(input: PricingPreview): string {
 export class FollowupRepository {
   constructor(private readonly db: Client) {}
 
-  async getContext(tenantId: string, followupId: string): Promise<FollowupContext> {
+  async getContext(
+    tenantId: string,
+    followupId: string,
+    callSessionId?: string,
+  ): Promise<FollowupContext> {
     const header = await this.db.execute({
       sql: `SELECT
               f.id AS followup_id, f.tenant_id, t.name AS tenant_name,
               s.id AS supplier_id, s.legal_name AS supplier_name,
               s.preferred_language, c.name AS contact_name,
               p.id AS requirement_id, p.requirement_number, p.title AS requirement_title,
-              p.version AS requirement_version, p.currency
+              p.version AS requirement_version, p.currency,
+              i.id AS item_id, i.line_number, i.item_name, i.specification, i.quantity_decimal
             FROM followup_jobs f
             JOIN tenants t ON t.id = f.tenant_id
             JOIN suppliers s ON s.id = f.supplier_id AND s.tenant_id = f.tenant_id
             JOIN supplier_contacts c ON c.id = f.supplier_contact_id AND c.tenant_id = f.tenant_id
             JOIN purchase_requirements p
               ON p.id = f.purchase_requirement_id AND p.tenant_id = f.tenant_id
-            WHERE f.id = ? AND f.tenant_id = ?`,
-      args: [followupId, tenantId],
+            LEFT JOIN purchase_requirement_items i ON i.purchase_requirement_id = p.id AND i.tenant_id = f.tenant_id
+            WHERE f.id = ? AND f.tenant_id = ?
+              AND (? IS NULL OR EXISTS (SELECT 1 FROM call_sessions cs
+                WHERE cs.id = ? AND cs.tenant_id = f.tenant_id AND cs.followup_job_id = f.id))
+            ORDER BY i.line_number`,
+      args: [followupId, tenantId, callSessionId ?? null, callSessionId ?? null],
     });
 
     const row = header.rows[0];
-    if (!row) throw new AppError('Follow-up not found', 404, 'FOLLOWUP_NOT_FOUND');
-
-    const itemResult = await this.db.execute({
-      sql: `SELECT id, line_number, item_name, specification, quantity_decimal, unit
-            FROM purchase_requirement_items
-            WHERE tenant_id = ? AND purchase_requirement_id = ?
-            ORDER BY line_number`,
-      args: [tenantId, text(row, 'requirement_id')],
-    });
+    if (!row)
+      throw new AppError(
+        callSessionId ? 'Call context is invalid' : 'Follow-up not found',
+        callSessionId ? 403 : 404,
+        callSessionId ? 'INVALID_CALL_CONTEXT' : 'FOLLOWUP_NOT_FOUND',
+      );
 
     return {
       tenantId: text(row, 'tenant_id'),
@@ -126,14 +132,16 @@ export class FollowupRepository {
       requirementTitle: text(row, 'requirement_title'),
       requirementVersion: integer(row, 'requirement_version'),
       currency: text(row, 'currency'),
-      items: itemResult.rows.map((item) => ({
-        id: text(item, 'id'),
-        lineNumber: integer(item, 'line_number'),
-        name: text(item, 'item_name'),
-        specification: text(item, 'specification'),
-        quantity: text(item, 'quantity_decimal'),
-        unit: 'KG' as const,
-      })),
+      items: header.rows
+        .filter((item) => item.item_id !== null)
+        .map((item) => ({
+          id: text(item, 'item_id'),
+          lineNumber: integer(item, 'line_number'),
+          name: text(item, 'item_name'),
+          specification: text(item, 'specification'),
+          quantity: text(item, 'quantity_decimal'),
+          unit: 'KG' as const,
+        })),
     };
   }
 
@@ -614,8 +622,7 @@ export class FollowupRepository {
   async previewPricing(
     input: PricingPreview,
   ): Promise<{ confirmationToken: string; readback: string[] }> {
-    await this.assertCallContext(input.tenantId, input.followupId, input.callSessionId);
-    const context = await this.getContext(input.tenantId, input.followupId);
+    const context = await this.getContext(input.tenantId, input.followupId, input.callSessionId);
     if (
       input.requirementId !== context.requirementId ||
       input.requirementVersion !== context.requirementVersion
@@ -666,8 +673,7 @@ export class FollowupRepository {
     discountBasisPoints?: number | null | undefined;
     items: PricingLine[];
   }): Promise<{ quotationId: string; idempotent: boolean }> {
-    await this.assertCallContext(input.tenantId, input.followupId, input.callSessionId);
-    const context = await this.getContext(input.tenantId, input.followupId);
+    const context = await this.getContext(input.tenantId, input.followupId, input.callSessionId);
     if (input.requirementId !== context.requirementId) {
       throw new AppError(
         'Requirement does not belong to this follow-up',
@@ -816,8 +822,8 @@ export class FollowupRepository {
           now,
         ],
       });
-      for (const item of input.items) {
-        await tx.execute({
+      await tx.batch(
+        input.items.map((item) => ({
           sql: `INSERT INTO supplier_quotation_items(
                   id, tenant_id, quotation_id, requirement_item_id, initial_rate_minor,
                   revised_rate_minor, final_rate_minor, unit, vendor_confirmed
@@ -831,8 +837,8 @@ export class FollowupRepository {
             item.revisedRateMinor ?? null,
             item.finalRateMinor,
           ],
-        });
-      }
+        })),
+      );
       await tx.execute({
         sql: `UPDATE followup_jobs SET status = 'completed', last_outcome = 'pricing_confirmed',
                 updated_at = ? WHERE id = ? AND tenant_id = ?`,

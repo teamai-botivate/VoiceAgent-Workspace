@@ -1,7 +1,7 @@
 # Standalone Voice Calling Agent
 
 Backend-only demonstration service for an autonomous purchase follow-up voice agent.
-It owns its Turso data, outbound-call scheduling, Groq gateway, ElevenLabs agent tools,
+It owns its Turso data, outbound-call scheduling, optional Groq gateway, ElevenLabs agent tools,
 call lifecycle, and audit records.
 
 It does **not** connect to AutoRocket. AutoRocket was used only to understand the kind
@@ -10,15 +10,17 @@ of follow-up workflow this standalone demo should model.
 ## Runtime architecture
 
 ```text
-Local CLI / opt-in scheduler -> this service -> ElevenLabs -> Twilio -> test phone
-                                  |     |
-                                  |     `-> Groq gateway hosted by this service
+Local CLI / opt-in scheduler -> this service -> Twilio -> ElevenLabs agent -> test phone
+                                  ^                      | Scribe / GPT-4o / TTS
+                                  |                      |
+                                  `-- authenticated tools'
+                                  |
                                   `-> Turso business data and outcomes
 ```
 
-ElevenLabs handles realtime transcription and speech synthesis. The service exposes an
-authenticated OpenAI-compatible endpoint that streams responses from Groq's
-`openai/gpt-oss-120b`. Agent webhook tools provide controlled access to business data;
+ElevenLabs handles Scribe Realtime transcription, native GPT-4o reasoning and speech
+synthesis. The service also retains an optional authenticated OpenAI-compatible Groq
+gateway, but the current agent does not use it. Agent webhook tools provide controlled access to business data;
 the model never receives database credentials or arbitrary SQL access.
 
 ## Tooling
@@ -113,14 +115,13 @@ Endpoints:
 - `POST /agent-tools/followup-context`
 - `POST /agent-tools/business-answer`
 - `POST /agent-tools/pricing-outcome`
+- `POST /agent-tools/pricing-preview` (exact readback and confirmation token before saving)
 - `POST /agent-tools/schedule-callback`
 - `POST /agent-tools/supplier-response`
 - `POST /agent-tools/finalize-call`
 - `POST /twilio/outbound` (Twilio-signed fallback bridge)
 - `POST /webhooks/elevenlabs/post-call`
 - `POST /webhooks/twilio/status`
-- `POST /twilio/outbound` (Twilio-trial fallback bridge; returns TwiML that joins the
-  ElevenLabs agent to the call)
 
 ## Public tunnel and ElevenLabs configuration
 
@@ -129,15 +130,14 @@ Use a stable reserved tunnel URL and set it as `PUBLIC_BASE_URL`.
 
 Configure the existing ElevenLabs agent as follows:
 
-- Custom LLM URL: `<PUBLIC_BASE_URL>/v1`
-- API type: Chat Completions
-- Model ID: `openai/gpt-oss-120b`
-- Authorization: `Bearer <LLM_GATEWAY_TOKEN>` stored as an ElevenLabs secret
+- Speech recognition: Scribe Realtime
+- LLM: native GPT-4o (no custom LLM URL or Groq gateway required)
 - Post-call webhook: `<PUBLIC_BASE_URL>/webhooks/elevenlabs/post-call`
 - Post-call HMAC secret: copy to `ELEVENLABS_WEBHOOK_SECRET`
 - Agent tool header: `X-Agent-Tool-Secret: <AGENT_TOOL_SECRET>`
 
-Create the six webhook tools described in `.agents/plan.md`. Map ElevenLabs parameter
+Run `bun run agent:provision` to reconcile the seven webhook tools, including
+`preview_pricing`, and the agent-specific post-call webhook. Map ElevenLabs parameter
 names to the camelCase JSON contracts exposed by the service. Dynamic variables passed
 at call initiation provide `tenant_id`, `followup_id`, and `call_session_id`; tool inputs
 must map them to `tenantId`, `followupId`, and `callSessionId`.
@@ -178,8 +178,20 @@ bun run test
 bun run build
 ```
 
-The repository tests use an in-memory libSQL database; they do not touch Turso or make
+The repository tests use temporary local SQLite files; they do not touch Turso or make
 provider calls.
+
+## Configuration files
+
+Keep `.env` (active secrets), `.env.example` (safe template), `agent_config.json`
+(active agent configuration), `package.json`, `bun.lock`, `biome.json`, both TypeScript
+configs and `vitest.config.ts`. These files are used; they are not cleanup candidates.
+Agent curation/provisioning save rollback snapshots under ignored, private
+`data/private/backups/`, not in the project root. Never commit that directory.
+
+See [schema and latency review](docs/schema-and-latency-review.md) for the AutoRocket
+mapping, verified demo dataset and Redis recommendations. No AutoRocket integration
+or Redis dependency has been enabled.
 
 ## Security properties
 

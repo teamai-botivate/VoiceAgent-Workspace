@@ -1,4 +1,4 @@
-import { access, copyFile, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 
 type JsonObject = Record<string, unknown>;
 
@@ -58,12 +58,9 @@ type AgentExport = JsonObject & {
 };
 
 const sourcePath = new URL('../agent_config.json', import.meta.url);
-const backupPath = new URL('../agent_config.original.json', import.meta.url);
-try {
-  await access(backupPath);
-} catch {
-  await copyFile(sourcePath, backupPath);
-}
+const backupDirectory = new URL('../data/private/backups/', import.meta.url);
+await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
+await copyFile(sourcePath, new URL('agent_config.before-curate.json', backupDirectory));
 
 const config = JSON.parse(await readFile(sourcePath, 'utf8')) as AgentExport;
 const agent = config.conversation_config.agent;
@@ -211,5 +208,5 @@ delete config.workflow;
 
 await writeFile(sourcePath, `${JSON.stringify(config, null, 2)}\n`);
 process.stdout.write(
-  'Curated standalone agent configuration and preserved agent_config.original.json.\n',
+  'Curated standalone agent configuration; previous configuration saved in data/private/backups.\n',
 );
