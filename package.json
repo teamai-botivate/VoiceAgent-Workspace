@@ -1,0 +1,49 @@
+{
+  "name": "standalone-voice-agent-demo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "bun@1.4.0",
+  "description": "Standalone purchase follow-up voice agent service",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "start": "bun dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "bun run typecheck && bun run lint && bun run test && bun run build",
+    "db:migrate": "bun scripts/migrate.ts",
+    "db:seed": "bun scripts/seed-demo.ts",
+    "demo:reset": "bun scripts/reset-demo-followup.ts",
+    "env:init": "bun scripts/init-env.ts",
+    "agent:curate": "bun scripts/curate-agent-config.ts",
+    "agent:provision": "bun scripts/provision-elevenlabs.ts",
+    "agent:provision:new": "bun scripts/provision-elevenlabs.ts --create-new",
+    "test-number:approve": "bun scripts/approve-test-number.ts",
+    "call:test": "bun scripts/make-test-call.ts"
+  },
+  "dependencies": {
+    "@fastify/formbody": "^8.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@libsql/client": "^0.15.15",
+    "@tursodatabase/serverless": "^1.4.0",
+    "dotenv": "^17.2.2",
+    "fastify": "^5.6.0",
+    "fastify-raw-body": "^5.0.0",
+    "pino": "^9.9.5",
+    "twilio": "^5.10.4",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.2",
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
