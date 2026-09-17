@@ -1,9 +1,8 @@
 # Docker deployment
 
-This deploys the standalone ADK/Gemini gateway. ElevenLabs and AutoRocket are
-not reconfigured. The same Docker image can run ElevenLabs via its default CMD,
-but Compose intentionally runs Gemini only. Do not enable an automatic calling
-scheduler during testing.
+This deploys the standalone ADK/Gemini gateway by default. The optional
+`elevenlabs` profile runs the ElevenLabs backend separately. Neither service
+connects to AutoRocket. Do not enable an automatic calling scheduler during testing.
 
 Requires a Docker-capable Linux VPS, Docker Compose, and a domain whose A record
 points to that VPS. Hostinger managed Cloud hosting is not equivalent to a VPS;
@@ -46,3 +45,15 @@ using `docker compose logs demo-tunnel`, update the server's
 This does not use ports 80/443 or alter existing reverse proxies. The tunnel
 address can change when the tunnel container restarts; repeat the URL update then.
 Keep `.env` restricted to mode 600. No API key belongs in a public Git repository.
+
+## Separate ElevenLabs demo
+
+Run `docker compose --profile elevenlabs up -d --build elevenlabs elevenlabs-tunnel`.
+The backend binds only localhost port 3100; its separate Cloudflare tunnel does
+not change the Gemini service or Gemini tunnel. Read the HTTPS URL from
+`docker compose logs elevenlabs-tunnel`, set `PUBLIC_BASE_URL` to it, and recreate
+only `elevenlabs` with `docker compose --profile elevenlabs up -d --no-deps elevenlabs`.
+Configure the agent's tools and post-call webhook with that same URL and the
+correct account's API key/agent ID. Keep `GEMINI_PUBLIC_BASE_URL` unchanged.
+Both demo tunnel URLs are temporary and must be refreshed after tunnel restarts.
+Liveness alone does not validate ElevenLabs credentials or calling quota.
