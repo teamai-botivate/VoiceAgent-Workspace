@@ -35,3 +35,13 @@ active calls; drain and verify no active calls before `docker compose up -d --bu
 
 No Cloudflare development tunnel is needed once the stable HTTPS domain is working.
 Do not overwrite the ElevenLabs `PUBLIC_BASE_URL` with Gemini's URL.
+
+## Temporary demo without a domain
+
+Run `docker compose --profile demo up -d --build`. Read the generated HTTPS URL
+using `docker compose logs demo-tunnel`, update the server's
+`GEMINI_PUBLIC_BASE_URL` to that address, then run
+`docker compose up -d --no-deps gemini` to reload environment configuration.
+This does not use ports 80/443 or alter existing reverse proxies. The tunnel
+address can change when the tunnel container restarts; repeat the URL update then.
+Keep `.env` restricted to mode 600. No API key belongs in a public Git repository.

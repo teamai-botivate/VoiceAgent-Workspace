@@ -30,7 +30,7 @@ services:
     image: caddy:2-alpine
     profiles: [https]
     environment:
-      VOICE_DOMAIN: ${VOICE_DOMAIN:?Set VOICE_DOMAIN to your public voice subdomain}
+      VOICE_DOMAIN: ${VOICE_DOMAIN:-}
     ports:
       - "80:80"
       - "443:443"
@@ -42,6 +42,22 @@ services:
     depends_on:
       gemini:
         condition: service_healthy
+
+  demo-tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: [demo]
+    command: [tunnel, --no-autoupdate, --url, "http://gemini:3200"]
+    restart: unless-stopped
+    depends_on:
+      gemini:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   caddy_data:
