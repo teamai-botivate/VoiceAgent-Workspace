@@ -233,6 +233,71 @@ describe('call reliability', () => {
     ).rejects.toMatchObject({ code: 'CONTACT_NOT_APPROVED' });
   });
 
+  it('keeps multiple test destinations approved independently', async () => {
+    const now = new Date().toISOString();
+    await db.batch(
+      ['+13205550101', '+13205550102'].map((phone) => ({
+        sql: `INSERT INTO approved_test_destinations(
+                tenant_id, followup_job_id, phone_e164, consent_status, created_at, updated_at
+              ) VALUES (?, ?, ?, 'test_approved', ?, ?)`,
+        args: [scope.tenantId, scope.followupId, phone, now, now],
+      })),
+      'write',
+    );
+
+    await expect(
+      repo.assertApprovedDestination(scope.tenantId, scope.followupId, '+13205550101'),
+    ).resolves.toBeUndefined();
+    await expect(
+      repo.assertApprovedDestination(scope.tenantId, scope.followupId, '+13205550102'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('applies an opt-out only to the destination used by that call', async () => {
+    const firstNumber = '+13205550101';
+    const secondNumber = '+13205550102';
+    const now = new Date().toISOString();
+    const originalContactConsent = (
+      await db.execute(
+        "SELECT call_consent_status FROM supplier_contacts WHERE id = 'contact_demo_steel_primary'",
+      )
+    ).rows[0]?.call_consent_status;
+    await db.batch(
+      [firstNumber, secondNumber].map((phone) => ({
+        sql: `INSERT INTO approved_test_destinations(
+                tenant_id, followup_job_id, phone_e164, consent_status, created_at, updated_at
+              ) VALUES (?, ?, ?, 'test_approved', ?, ?)`,
+        args: [scope.tenantId, scope.followupId, phone, now, now],
+      })),
+      'write',
+    );
+    const call = await repo.createCallSession({
+      ...scope,
+      idempotencyKey: 'destination-opt-out',
+      toNumber: firstNumber,
+    });
+    await repo.recordSupplierResponse({
+      ...scope,
+      callSessionId: call.id,
+      disposition: 'opted_out',
+      summary: 'Do not call this test number again.',
+    });
+
+    await expect(
+      repo.assertApprovedDestination(scope.tenantId, scope.followupId, firstNumber),
+    ).rejects.toMatchObject({ code: 'CONTACT_NOT_APPROVED' });
+    await expect(
+      repo.assertApprovedDestination(scope.tenantId, scope.followupId, secondNumber),
+    ).resolves.toBeUndefined();
+    expect(
+      (
+        await db.execute(
+          "SELECT call_consent_status FROM supplier_contacts WHERE id = 'contact_demo_steel_primary'",
+        )
+      ).rows[0]?.call_consent_status,
+    ).toBe(originalContactConsent);
+  });
+
   it('formats codes, specifications and money without changing canonical values', () => {
     expect(spokenRequirement('PR-DEMO-2026-001')).toBe(
       'P R, Demo, two zero two six, zero zero one',

@@ -25,6 +25,10 @@ the model never receives database credentials or arbitrary SQL access.
 
 ## Tooling
 
+An opt-in, separate Gemini Live audio experiment using Google ADK is documented in
+[docs/gemini-experiment.md](docs/gemini-experiment.md). It does not replace the
+ElevenLabs runtime or alter its commands or tunnel URL.
+
 - Bun 1.4+ for installs and all TypeScript commands.
 - Node.js 20+ compatibility target.
 - No Python component is currently used.
@@ -88,13 +92,18 @@ boundaries fact is not reachable from a call until its category is added to
 A destination must pass both checks:
 
 1. It appears in `ALLOWED_TEST_PHONE_NUMBERS`.
-2. The stored demo contact has `test_approved` consent.
+2. It has a `test_approved` entry for the demo follow-up (the original supplier contact
+   remains valid too).
 
 Approve a user-controlled test number only after migrations and seeding:
 
 ```bash
-bun run test-number:approve -- +<approved-e164-number>
+bun run test-number:approve -- +<approved-e164-number> +<another-approved-number>
 ```
+
+Approvals are additive: approving another number does not replace an existing number.
+Restart the service after changing `ALLOWED_TEST_PHONE_NUMBERS`, because environment
+configuration is loaded when the process starts.
 
 The scheduler is disabled by default. Keep `SCHEDULER_ENABLED=false` until a controlled
 manual call has succeeded.

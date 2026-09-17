@@ -17,4 +17,5 @@ agent_config.local.json
 agent_config.json
 agent_config.original.json
 agent_config.before-provision.json
+agent.config*.json
 data/private/

@@ -6,9 +6,7 @@ const apiKey = required('ELEVENLABS_API_KEY');
 const publicBaseUrl = required('PUBLIC_BASE_URL').replace(/\/+$/, '');
 const createNewAgent = process.argv.includes('--create-new');
 const managedToolIds = new Set<string>();
-const agentName = createNewAgent
-  ? 'AutoRocket Purchase Follow-up Demo v2'
-  : 'AutoRocket Purchase Follow-up Demo';
+const agentName = 'Pratap - AutoRocket Purchase Follow-up Demo';
 
 function required(name: string): string {
   const value = process.env[name];

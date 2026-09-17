@@ -1,0 +1,48 @@
+services:
+  gemini:
+    build: .
+    command: [bun, dist/experiments/gemini/server.js]
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      GEMINI_PORT: "3200"
+      HEALTH_PORT: "3200"
+      SCHEDULER_ENABLED: "false"
+    ports:
+      - "127.0.0.1:3200:3200"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+    mem_limit: 768m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  proxy:
+    image: caddy:2-alpine
+    profiles: [https]
+    environment:
+      VOICE_DOMAIN: ${VOICE_DOMAIN:?Set VOICE_DOMAIN to your public voice subdomain}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    depends_on:
+      gemini:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:

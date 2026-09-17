@@ -177,9 +177,10 @@ export class FollowupRepository {
     tenantId: string;
     followupId: string;
     idempotencyKey: string;
+    toNumber?: string;
   }): Promise<{ id: string; status: string; existing: boolean }> {
     const existing = await this.db.execute({
-      sql: `SELECT id, tenant_id, followup_job_id, status FROM call_sessions
+      sql: `SELECT id, tenant_id, followup_job_id, destination_phone_e164, status FROM call_sessions
             WHERE idempotency_key = ?`,
       args: [input.idempotencyKey],
     });
@@ -187,7 +188,8 @@ export class FollowupRepository {
     if (existingRow) {
       if (
         text(existingRow, 'tenant_id') !== input.tenantId ||
-        text(existingRow, 'followup_job_id') !== input.followupId
+        text(existingRow, 'followup_job_id') !== input.followupId ||
+        (input.toNumber !== undefined && existingRow.destination_phone_e164 !== input.toNumber)
       ) {
         throw new AppError(
           'Idempotency key was already used for a different call',
@@ -205,8 +207,9 @@ export class FollowupRepository {
       [
         {
           sql: `INSERT INTO call_sessions(
-                  id, tenant_id, followup_job_id, idempotency_key, status, created_at, updated_at
-                ) SELECT ?, ?, ?, ?, 'created', ?, ?
+                  id, tenant_id, followup_job_id, idempotency_key, destination_phone_e164,
+                  status, created_at, updated_at
+                ) SELECT ?, ?, ?, ?, ?, 'created', ?, ?
                   WHERE NOT EXISTS (SELECT 1 FROM call_sessions WHERE tenant_id = ? AND followup_job_id = ?
                     AND status IN ('created', 'initiating', 'initiated', 'ringing', 'in_progress'))`,
           args: [
@@ -214,6 +217,7 @@ export class FollowupRepository {
             input.tenantId,
             input.followupId,
             input.idempotencyKey,
+            input.toNumber ?? null,
             now,
             now,
             input.tenantId,
@@ -250,9 +254,19 @@ export class FollowupRepository {
     phone: string,
   ): Promise<void> {
     const result = await this.db.execute({
-      sql: `SELECT 1 AS found FROM followup_jobs f JOIN supplier_contacts c ON c.id = f.supplier_contact_id AND c.tenant_id = f.tenant_id
-            WHERE f.tenant_id = ? AND f.id = ? AND c.phone_e164 = ? AND c.call_consent_status = 'test_approved'`,
-      args: [tenantId, followupId, phone],
+      sql: `SELECT 1 AS found
+            FROM followup_jobs f
+            JOIN supplier_contacts c
+              ON c.id = f.supplier_contact_id AND c.tenant_id = f.tenant_id
+            WHERE f.tenant_id = ? AND f.id = ? AND (
+              (c.phone_e164 = ? AND c.call_consent_status = 'test_approved')
+              OR EXISTS (
+                SELECT 1 FROM approved_test_destinations d
+                WHERE d.tenant_id = f.tenant_id AND d.followup_job_id = f.id
+                  AND d.phone_e164 = ? AND d.consent_status = 'test_approved'
+              )
+            )`,
+      args: [tenantId, followupId, phone, phone],
     });
     if (!result.rows[0])
       throw new AppError(
@@ -270,9 +284,11 @@ export class FollowupRepository {
     status: string;
     conversationId: string | null;
     callSid: string | null;
+    destinationPhone: string | null;
   }> {
     const result = await this.db.execute({
-      sql: `SELECT id, status, elevenlabs_conversation_id, twilio_call_sid
+      sql: `SELECT id, status, elevenlabs_conversation_id, twilio_call_sid,
+              destination_phone_e164
             FROM call_sessions WHERE id = ? AND tenant_id = ?`,
       args: [callSessionId, tenantId],
     });
@@ -284,6 +300,8 @@ export class FollowupRepository {
       conversationId:
         typeof row.elevenlabs_conversation_id === 'string' ? row.elevenlabs_conversation_id : null,
       callSid: typeof row.twilio_call_sid === 'string' ? row.twilio_call_sid : null,
+      destinationPhone:
+        typeof row.destination_phone_e164 === 'string' ? row.destination_phone_e164 : null,
     };
   }
 
@@ -934,8 +952,39 @@ export class FollowupRepository {
       [
         {
           sql: `UPDATE supplier_contacts SET call_consent_status = 'opted_out', updated_at = ?
-                WHERE tenant_id = ? AND id = (SELECT supplier_contact_id FROM followup_jobs WHERE id = ? AND tenant_id = ?) AND ? = 'opted_out'`,
-          args: [now, input.tenantId, input.followupId, input.tenantId, input.disposition],
+                WHERE tenant_id = ?
+                  AND id = (SELECT supplier_contact_id FROM followup_jobs WHERE id = ? AND tenant_id = ?)
+                  AND ? = 'opted_out'
+                  AND phone_e164 = COALESCE(
+                    (SELECT destination_phone_e164 FROM call_sessions WHERE id = ? AND tenant_id = ?),
+                    phone_e164
+                  )`,
+          args: [
+            now,
+            input.tenantId,
+            input.followupId,
+            input.tenantId,
+            input.disposition,
+            input.callSessionId,
+            input.tenantId,
+          ],
+        },
+        {
+          sql: `UPDATE approved_test_destinations
+                SET consent_status = 'opted_out', updated_at = ?
+                WHERE tenant_id = ? AND followup_job_id = ? AND ? = 'opted_out'
+                  AND phone_e164 = (
+                    SELECT destination_phone_e164 FROM call_sessions
+                    WHERE id = ? AND tenant_id = ?
+                  )`,
+          args: [
+            now,
+            input.tenantId,
+            input.followupId,
+            input.disposition,
+            input.callSessionId,
+            input.tenantId,
+          ],
         },
         {
           sql: `UPDATE followup_jobs SET status = 'cancelled', last_outcome = 'opted_out', lease_owner = NULL, lease_expires_at = NULL, updated_at = ?

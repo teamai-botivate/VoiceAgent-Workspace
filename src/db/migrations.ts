@@ -195,6 +195,30 @@ const migrations: Migration[] = [
       'CREATE INDEX idx_inbox_pending ON provider_event_inbox(processed_at, received_at)',
     ],
   },
+  {
+    version: 3,
+    name: 'multiple_approved_test_destinations',
+    statements: [
+      `CREATE TABLE approved_test_destinations (
+        tenant_id TEXT NOT NULL REFERENCES tenants(id),
+        followup_job_id TEXT NOT NULL REFERENCES followup_jobs(id),
+        phone_e164 TEXT NOT NULL,
+        consent_status TEXT NOT NULL CHECK (consent_status IN ('test_approved', 'opted_out')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (tenant_id, followup_job_id, phone_e164)
+      )`,
+      `INSERT INTO approved_test_destinations(
+        tenant_id, followup_job_id, phone_e164, consent_status, created_at, updated_at
+      )
+      SELECT f.tenant_id, f.id, c.phone_e164, 'test_approved', f.created_at, f.updated_at
+      FROM followup_jobs f
+      JOIN supplier_contacts c ON c.id = f.supplier_contact_id AND c.tenant_id = f.tenant_id
+      WHERE c.call_consent_status = 'test_approved'`,
+      'ALTER TABLE call_sessions ADD COLUMN destination_phone_e164 TEXT',
+      'CREATE INDEX idx_test_destinations_phone ON approved_test_destinations(phone_e164, consent_status)',
+    ],
+  },
 ];
 
 export async function runMigrations(db: Client): Promise<void> {

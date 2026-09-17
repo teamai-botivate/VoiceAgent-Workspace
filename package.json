@@ -26,11 +26,17 @@
     "agent:provision": "bun scripts/provision-elevenlabs.ts",
     "agent:provision:new": "bun scripts/provision-elevenlabs.ts --create-new",
     "test-number:approve": "bun scripts/approve-test-number.ts",
-    "call:test": "bun scripts/make-test-call.ts"
+    "call:test": "bun scripts/make-test-call.ts",
+    "gemini:check": "bun scripts/check-gemini-live.ts",
+    "gemini:probe": "bun scripts/probe-gemini-gateway.ts",
+    "gemini:start": "bun src/experiments/gemini/server.ts",
+    "gemini:call": "bun scripts/make-gemini-test-call.ts"
   },
   "dependencies": {
     "@fastify/formbody": "^8.0.2",
     "@fastify/rate-limit": "^10.3.0",
+    "@google/adk": "^2.1.0",
+    "@google/genai": "^2.23.0",
     "@libsql/client": "^0.15.15",
     "@tursodatabase/serverless": "^1.4.0",
     "dotenv": "^17.2.2",
@@ -38,11 +44,13 @@
     "fastify-raw-body": "^5.0.0",
     "pino": "^9.9.5",
     "twilio": "^5.10.4",
+    "ws": "^8.21.3",
     "zod": "^4.1.5"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.2",
     "@types/node": "^24.3.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }

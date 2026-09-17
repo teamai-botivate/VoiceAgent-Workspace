@@ -137,6 +137,7 @@ export async function providerWebhookRoutes(
     const session = await repository.getCallSession(query.tenantId, query.callSessionId);
     if (
       fromNumber !== requireConfig('TWILIO_PHONE_NUMBER') ||
+      (session.destinationPhone && session.destinationPhone !== toNumber) ||
       (session.callSid && session.callSid !== body.CallSid)
     ) {
       throw new AppError('Provider call does not match this session', 403, 'INVALID_CALL_CONTEXT');
