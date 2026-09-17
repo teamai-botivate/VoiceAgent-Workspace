@@ -24,8 +24,9 @@ services before binding ports 80/443; use the existing reverse proxy if occupied
 5. Check `docker compose ps`, `docker compose logs --tail=100 gemini` and
    `curl --fail https://voice.yourdomain.com/health/live`.
 6. Place a single authorized test call through the authenticated
-   `/internal/gemini/calls` endpoint or the existing `bun run gemini:call` command
-   on the server with the source checkout and Bun installed.
+   `/internal/gemini/calls` endpoint, or run
+   `sudo docker compose exec -T gemini bun deploy/call-gemini.ts +<approved-number>`.
+   This uses container environment credentials; it needs no host Bun installation.
 
 The runtime image has no development scripts, API keys or source maps containing
 credentials. Source maps describe code only. Health checks prove liveness, not

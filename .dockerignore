@@ -6,3 +6,5 @@
 !tsconfig.build.json
 !src
 !src/**
+!deploy
+!deploy/call-gemini.ts

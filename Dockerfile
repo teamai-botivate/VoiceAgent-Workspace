@@ -12,6 +12,7 @@ ENV NODE_ENV=production HOST=0.0.0.0 PORT=3100 HEALTH_PORT=3100
 COPY package.json bun.lock ./
 RUN bun install --production --frozen-lockfile --ignore-scripts
 COPY --from=build --chown=bun:bun /app/dist ./dist
+COPY --chown=bun:bun deploy/call-gemini.ts ./deploy/call-gemini.ts
 USER bun
 EXPOSE 3100 3200
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
